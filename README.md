@@ -48,6 +48,43 @@ DeepSeek Flash model. JPEG, PNG, GIF, and WebP inputs are accepted by the
 homework runner.
 
 
-## Homework 1 solution: 
-> to students: please fill your solution description here.
+## Homework 1 solution:
 
+### Chain design
+
+```mermaid
+flowchart LR
+    A[Folder of receipt images] --> B[image_data_url: base64-encode each image]
+    B --> C[ChatPromptTemplate: system rules + multimodal human]
+    C --> D["ChatDeepSeek: deepseek-v4-flash-vision-exp, temperature=0"]
+    D --> E[chain.batch: parallel, one JSON per receipt]
+    E --> F[_parse_receipt: json.loads, regex fallback]
+    F --> G[Decimal aggregation across all receipts]
+    G --> H1["Query 1: sum of amount_paid_after_rounding"]
+    G --> H2["Query 2: sum of subtotal + discount_total"]
+    H1 --> I[results.csv]
+    H2 --> I
+```
+
+### Description
+
+I deliberately keep the language model out of the arithmetic. `build_chain()`
+creates a single vision chain: a `ChatPromptTemplate` whose system message pins
+down the exact receipt semantics (query 1 = the final payment line *after*
+ROUNDING; query 2 = SUBTOTAL plus every discount / promotion / coupon / member
+/ app / packaging-damage line added back as a positive number, *without* adding
+ROUNDING back) and forces the model to reply with a bare JSON object holding
+exactly three fields — `amount_paid_after_rounding`, `subtotal` and
+`discount_total` — while the human message carries the receipt image as a
+base64 data URL through the provided `image_data_url()` helper. A worked
+receipt-5-style example is baked into the prompt to anchor the
+ROUNDING-versus-SUBTOTAL distinction, and the model is
+`ChatDeepSeek("deepseek-v4-flash-vision-exp")` at `temperature=0`.
+`answer_queries()` then pushes every receipt through the chain in parallel with
+`chain.batch()`, parses each structured reply back into Python `Decimal`s
+(`json.loads` first, then a per-field regex fallback so one malformed response
+can never crash the run), and aggregates deterministically: query 1 sums the
+post-rounding payments, query 2 sums `subtotal + discount_total`. Separating
+extraction from arithmetic makes the totals exact and reproducible, and because
+each answer is returned as a single `HK$<number>` string it satisfies the
+grader's exactly-one-number rule.

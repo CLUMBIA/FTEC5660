@@ -3,3 +3,4 @@
 __pycache__/
 results.csv
 solution.py
+.DS_Store
